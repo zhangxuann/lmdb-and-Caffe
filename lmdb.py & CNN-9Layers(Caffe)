@@ -1,0 +1,229 @@
+"""学习深度神经网络在caffe平台上的编程实现，从原始图片到caffe可读的lmdb数据集，再将数据集读入网络训练的
+全过程。这里的代码主要是学习和熟练应用caffe的训练，就以图片数据为例，学习如何制作lmdb数据集，以及训练调优
+网络。"""
+
+"""一、原始图片到lmdb数据集"""
+#原始图片分为train和test文件，对应制作train.txt和test.txt，这一步需要自己编程，Python代码如下：
+1.	#导入程序所需的库
+2.	import os  #获取当前目录
+3.	import numpy as np  
+4.	from matplotlib import pyplot as plt  
+5.	import cv2  
+6.	import shutil  
+7.	  
+8.	  
+9.	#扫面文件  
+10.	def GetFileList(FindPath,FlagStr=[]):     #定义获取文件列表的函数   
+11.	    import os  
+12.	    FileList=[]  
+13.	    FileNames=os.listdir(FindPath)    #文件路径列表
+14.	    if len(FileNames)>0:    #文件路径非0或非空，则循环加入文件路径和文件
+15.	                                            名，
+16.	        for fn in FileNames:  
+17.	            if len(FlagStr)>0:   #文件名非空
+18.	                if IsSubString(FlagStr,fn):  
+19.	                    fullfilename=os.path.join(FindPath,fn)  
+20.	                    FileList.append(fullfilename) #加入文件路径 
+21.	            else:  
+22.	                fullfilename=os.path.join(FindPath,fn)  
+23.	                FileList.append(fullfilename)  
+24.	    
+25.	    if len(FileList)>0:  #文件列表非空，并 排序
+26.	        FileList.sort()  
+27.	  
+28.	    return FileList  
+29.	def IsSubString(SubStrList,Str):        
+30.	    flag=True  
+31.	    for substr in SubStrList:  
+32.	        if not(substr in Str):  
+33.	            flag=False  
+34.	  
+35.	    return flag  
+36.	  
+37.	txt=open('train.txt','w')   #写入train.txt
+38.	#制作标签数据，如果是男的，标签设置为0，如果是女的,标签为1 
+39.	imgfile=GetFileList(' first_batch/train_female ')  
+40.	for img in imgfile:  
+41.	    str=img+'\t'+'1'+'\n'  
+42.	    txt.writelines(str)  
+43.	  
+44.	imgfile=GetFileList('first_batch/train_male')  
+45.	for img in imgfile:  
+46.	    str=img+'\t'+'0'+'\n'  
+47.	    txt.writelines(str)
+48.	txt.close() 
+#经过上述代码处理，得到train和train.txt，同理可得test和test.txt。第二阶段制作lmdb，caffe中
+#有相应脚本create.sh和convert.sh。最终得到train.mdb和lock.mdb。
+"""二，构建CNN-9Layers(caffe),和【构建CNN和RNN】中的各种神经网络不同之处：
+1，input层的参数不同，这里是data_param, 那里是hdf5_data_param；2，卷积层和池化层的参数不同，"""
+name: "CNN-9layers"
+layer {
+  name: "data"
+  type: "Data"
+  top: "data"
+  top: "label"
+  include{phase:TRAIN}
+    data_param{ 
+source: "train.lmdb"
+    batch_size: 64
+    backend: LMDB
+    } 
+}
+layer {
+  name: "data"
+  type: "Data"
+  top: "data"
+  top: "label"
+  include{phase:TEST}
+    data_param{ 
+source: "test.lmdb"
+    batch_size: 64
+    backend: LMDB
+    } 
+}
+layer {
+  name: "conv1"
+  type: "Convolution"
+  bottom: "data"
+  top: "conv1"
+  param {
+    lr_mult: 1
+  }
+  param {
+    lr_mult: 2
+  }
+  convolution_param {
+    num_output: 32
+    pad: 2
+    kernel_size: 5
+    stride: 1
+  }
+}
+layer {
+  name: "pool1"
+  type: "Pooling"
+  bottom: "conv1"
+  top: "pool1"
+  pooling_param {
+    pool: MAX
+    kernel_size: 3
+    stride: 2
+  }
+}
+layer {
+  name: "relu1"
+  type: "ReLU"
+  bottom: "pool1"
+  top: "pool1"
+}
+layer {
+  name: "norm1"
+  type: "LRN"
+  bottom: "pool1"
+  top: "norm1"
+  lrn_param {
+    local_size: 3
+    alpha: 5e-05
+    beta: 0.75
+    norm_region: WITHIN_CHANNEL
+  }
+}
+layer {
+  name: "conv2"
+  type: "Convolution"
+  bottom: "norm1"
+  top: "conv2"
+  param {
+    lr_mult: 1
+  }
+  param {
+    lr_mult: 2
+  }
+  convolution_param {
+    num_output: 32
+    pad: 2
+    kernel_size: 5
+    stride: 1
+  }
+}
+layer {
+  name: "relu2"
+  type: "ReLU"
+  bottom: "conv2"
+  top: "conv2"
+}
+layer {
+  name: "pool2"
+  type: "Pooling"
+  bottom: "conv2"
+  top: "pool2"
+  pooling_param {
+    pool: AVE
+    kernel_size: 3
+    stride: 2
+  }
+}
+layer {
+  name: "norm2"
+  type: "LRN"
+  bottom: "pool2"
+  top: "norm2"
+  lrn_param {
+    local_size: 3
+    alpha: 5e-05
+    beta: 0.75
+    norm_region: WITHIN_CHANNEL
+  }
+}
+layer {
+  name: "conv3"
+  type: "Convolution"
+  bottom: "norm2"
+  top: "conv3"
+  convolution_param {
+    num_output: 64
+    pad: 2
+    kernel_size: 5
+    stride: 1
+  }
+}
+layer {
+  name: "relu3"
+  type: "ReLU"
+  bottom: "conv3"
+  top: "conv3"
+}
+layer {
+  name: "pool3"
+  type: "Pooling"
+  bottom: "conv3"
+  top: "pool3"
+  pooling_param {
+    pool: AVE
+    kernel_size: 3
+    stride: 2
+  }
+}
+layer {
+  name: "ip1"
+  type: "InnerProduct"
+  bottom: "pool3"
+  top: "ip1"
+  param {
+    lr_mult: 1
+    decay_mult: 250
+  }
+  param {
+    lr_mult: 2
+    decay_mult: 0
+  }
+  inner_product_param {
+    num_output: 10
+  }
+}
+layer {
+  name: "prob"
+  type: "Softmax"
+  bottom: "ip1"
+  top: "prob"
+}
